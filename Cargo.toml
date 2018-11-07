@@ -2,8 +2,11 @@
 name = "apt-sources-lists"
 version = "0.1.0"
 authors = ["Michael Aaron Murphy <mmstickman@gmail.com>"]
+description = "Library for fetching information from apt sources lists on the system"
 license = "MIT"
 readme = "README.md"
+keywords = ["apt", "source", "list"]
+categories = ["os::unix-apis"]
 
 [dependencies]
 failure = "0.1.3"

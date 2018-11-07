@@ -55,6 +55,44 @@ impl SourcesList {
 
         Ok(SourcesList { entries, origins, paths })
     }
+
+    /// Constructs an iterator of source entries from a sources list.
+    pub fn dist_paths(&self) -> impl Iterator<Item = &SourceEntry> {
+        self.into_iter()
+            .filter_map(move |entry| {
+                if let SourceEvent::Entry(SourceLine::Entry(entry)) = entry {
+                    return Some(entry);
+                }
+
+                None
+            })
+    }
+
+    /// Retrieve an iterator of upgradeable paths.
+    ///
+    /// All source entries that have the `from_suite` will have new URLs constructed with the
+    /// `to_suite`.
+    pub fn dist_upgrade_paths<'a>(
+        &'a self,
+        from_suite: &'a str,
+        to_suite: &'a str
+    ) -> impl Iterator<Item = String> + 'a {
+        self.dist_paths()
+            .filter_map(move |entry| {
+                if entry.url.starts_with("http") && entry.suite == from_suite {
+                    let entry = {
+                        let mut entry = entry.clone();
+                        entry.suite = to_suite.to_owned();
+                        entry
+                    };
+
+                    let dist_path = entry.dist_path();
+                    Some(dist_path)
+                } else {
+                    None
+                }
+            })
+    }
 }
 
 #[derive(Debug)]
