@@ -1,7 +1,7 @@
 use super::*;
 use std::path::{Path, PathBuf};
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader};
+use std::io::{self, BufRead, BufReader, Write};
 
 /// Stores all apt source information fetched from the system.
 pub struct SourcesList {
@@ -68,6 +68,81 @@ impl SourcesList {
             })
     }
 
+    /// Upgrade entries so that they point to a new release.
+    ///
+    /// Files are copied to "$path.save" before being overwritten. On failure, these backup files
+    /// will be used to restore the original list.
+    pub fn dist_upgrade(&mut self, from_suite: &str, to_suite: &str) -> io::Result<()> {
+        fn newfile(modified: &mut Vec<PathBuf>, path: &Path) -> io::Result<File> {
+            let backup_path = path.file_name()
+                .map(|str| {
+                    let mut string = str.to_os_string();
+                    string.push(".save");
+
+                    let mut backup = path.to_path_buf();
+                    backup.set_file_name(&string);
+                    backup
+                })
+                .ok_or_else(|| io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("filename not found for apt source at '{}'", path.display())
+                ))?;
+
+            fs::copy(path, &backup_path)?;
+            modified.push(backup_path);
+            fs::OpenOptions::new().truncate(true).write(true).open(path)
+        }
+
+        fn apply(
+            sources: &mut SourcesList,
+            modified: &mut Vec<PathBuf>,
+            from_suite: &str,
+            to_suite: &str
+        ) -> io::Result<()> {
+            let mut iterator = sources.iter_mut();
+            let mut current_file = match iterator.next() {
+                Some(SourceEventMut::NewList(path)) => newfile(modified, &path)?,
+                Some(_) => unreachable!("expected first input to be a path"),
+                None => return Ok(())
+            };
+
+            for entry in iterator {
+                match entry {
+                    SourceEventMut::NewList(path) => {
+                        current_file.flush()?;
+                        current_file = newfile(modified, &path)?;
+                    },
+                    SourceEventMut::Entry(line) => {
+                        if let SourceLine::Entry(entry) = line {
+                            if entry.url.starts_with("http") && entry.suite.starts_with(from_suite) {
+                                entry.suite = entry.suite.replace(from_suite, to_suite);;
+                            }
+                        }
+
+                        writeln!(&mut current_file, "{}", line)?
+                    }
+                }
+            }
+
+            Ok(())
+        }
+
+        let mut modified = Vec::new();
+        apply(self, &mut modified, from_suite, to_suite)
+            .map_err(|why| {
+                // TODO: Revert the in-memory changes that were made when being applied.
+                // revert(self, &modified);
+    
+                for (original, backup) in self.paths.iter().zip(modified.iter()) {
+                    if let Err(why) = fs::copy(backup, original) {
+                        eprintln!("failed to restore backup of {:?}: {}", backup, why);
+                    }
+                }
+
+                why
+            })
+    }
+
     /// Retrieve an iterator of upgradeable paths.
     ///
     /// All source entries that have the `from_suite` will have new URLs constructed with the
@@ -79,10 +154,10 @@ impl SourcesList {
     ) -> impl Iterator<Item = String> + 'a {
         self.dist_paths()
             .filter_map(move |entry| {
-                if entry.url.starts_with("http") && entry.suite == from_suite {
+                if entry.url.starts_with("http") && entry.suite.starts_with(from_suite) {
                     let entry = {
                         let mut entry = entry.clone();
-                        entry.suite = to_suite.to_owned();
+                        entry.suite = entry.suite.replace(from_suite, to_suite);
                         entry
                     };
 
@@ -93,12 +168,16 @@ impl SourcesList {
                 }
             })
     }
-}
 
-#[derive(Debug)]
-pub enum SourceEvent<'a> {
-    NewList(&'a Path),
-    Entry(&'a SourceLine)
+    /// Returns an iterator over immutable entries.
+    pub fn iter(&self) -> SourcesIter<'_> {
+        self.into_iter()
+    }
+
+    /// Returns an iterator over mutable entries.
+    pub fn iter_mut(&mut self) -> SourcesIterMut<'_> {
+        self.into_iter()
+    }
 }
 
 impl<'a> IntoIterator for &'a SourcesList {
@@ -108,6 +187,12 @@ impl<'a> IntoIterator for &'a SourcesList {
     fn into_iter(self) -> Self::IntoIter {
         SourcesIter::new(self)
     }
+}
+
+#[derive(Debug)]
+pub enum SourceEvent<'a> {
+    NewList(&'a Path),
+    Entry(&'a SourceLine)
 }
 
 /// An iterator of active apt source entries.
@@ -138,6 +223,67 @@ impl<'a> Iterator for SourcesIter<'a> {
 
             self.position += 1;
             Some(SourceEvent::Entry(&self.list.entries[self.position as usize - 1]))
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a mut SourcesList {
+    type Item = SourceEventMut<'a>;
+    type IntoIter = SourcesIterMut<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        SourcesIterMut::new(self)
+    }
+}
+
+#[derive(Debug)]
+pub enum SourceEventMut<'a> {
+    NewList(&'a mut PathBuf),
+    Entry(&'a mut SourceLine)
+}
+
+/// An iterator of active apt source entries.
+pub struct SourcesIterMut<'a> {
+    position: u32,
+    list: &'a mut SourcesList,
+    last_path: u32,
+    started: bool,
+}
+
+impl<'a> SourcesIterMut<'a> {
+    pub fn new(list: &'a mut SourcesList) -> Self {
+        Self { position: 0, list, last_path: 0, started: false }
+    }
+}
+
+impl<'a> Iterator for SourcesIterMut<'a> {
+    type Item = SourceEventMut<'a>;
+
+    fn next(&mut self) -> Option<SourceEventMut<'a>> {
+        // TODO: avoid unsafe usage here.
+        let (paths, entries) = match (self.list.paths.get_mut(0), self.list.entries.get_mut(0)) {
+            (Some(path), Some(entry)) => (path as *mut PathBuf, entry as *mut SourceLine),
+            _ => return None
+        };
+
+        if self.list.entries.len() as u32 > self.position {
+            let new_path = self.list.origins[self.position as usize];
+            if ! self.started || new_path != self.last_path {
+                self.started = true;
+                self.last_path = new_path;
+                let path: &mut PathBuf = unsafe {
+                    &mut *paths.offset(new_path as isize)
+                };
+                Some(SourceEventMut::NewList(path))
+            } else {
+                self.position += 1;
+                let entry: &mut SourceLine = unsafe {
+                    &mut *entries.offset(self.position as isize - 1)
+                };
+                Some(SourceEventMut::Entry(entry))
+            }
         } else {
             None
         }

@@ -96,6 +96,16 @@ impl SourceEntry {
         url
     }
 
+    /// The base filename to be used when storing files for this entries.
+    pub fn filename(&self) -> String {
+        let mut url = self.url();
+        if let Some(pos) = url.find("//") {
+            url = &url[pos..];
+        }
+
+        url.replace("/", "_")
+    }
+
     /// Returns the root URL for this entry's dist path.
     ///
     /// For an entry such as:

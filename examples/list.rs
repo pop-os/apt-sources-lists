@@ -4,7 +4,7 @@ use apt_sources_lists::*;
 
 pub fn main() {
     let list = SourcesList::scan().unwrap();
-    for event in list.into_iter() {
+    for event in list.iter() {
         match event {
             SourceEvent::NewList(path) => {
                 println!("{}:", path.display());
