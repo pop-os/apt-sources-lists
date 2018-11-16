@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Write};
 
+#[derive(Clone, Debug)]
 /// Stores all apt source information fetched from the system.
 pub struct SourcesList {
     /// Entries that were collected from the apt sources list files.
@@ -132,7 +133,7 @@ impl SourcesList {
             .map_err(|why| {
                 // TODO: Revert the in-memory changes that were made when being applied.
                 // revert(self, &modified);
-    
+
                 for (original, backup) in self.paths.iter().zip(modified.iter()) {
                     if let Err(why) = fs::copy(backup, original) {
                         eprintln!("failed to restore backup of {:?}: {}", backup, why);
