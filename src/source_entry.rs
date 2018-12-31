@@ -38,7 +38,7 @@ impl SourceEntry {
 
             if let Some(pos) = field.find(']') {
                 if pos == field.len() - 1 {
-                    options = Some(field);
+                    options = Some(field[..pos].into());
                 } else {
                     options = Some(field[..pos].into());
                     leftover = Some(field[pos+1..].into());
