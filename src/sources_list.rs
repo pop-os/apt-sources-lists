@@ -48,6 +48,16 @@ impl SourcesFile {
         Ok(source_list)
     }
 
+    pub fn contains_entry(&self, entry: &str) -> Option<usize> {
+        self.lines.iter().position(|line| {
+            if let SourceLine::Entry(e) = line {
+                entry == e.url
+            } else {
+                false
+            }
+        })
+    }
+
     pub fn is_active(&self) -> bool {
         self.lines.iter().any(|line| if let SourceLine::Entry(_) = line { true } else { false })
     }
@@ -116,15 +126,7 @@ impl SourcesList {
         &'a self,
         entry: &'a str,
     ) -> impl Iterator<Item = (usize, &'a SourcesFile)> {
-        self.iter().enumerate().filter(move |(_, list)| {
-            list.lines.iter().any(|line| {
-                if let SourceLine::Entry(e) = line {
-                    entry == e.url
-                } else {
-                    false
-                }
-            })
-        })
+        self.iter().filter_map(move |list| list.contains_entry(entry).map(|p| (p, list)))
     }
 
     /// Determine if the given entry repo is in a sources list, then return each repo where it was found.
@@ -132,28 +134,24 @@ impl SourcesList {
         &'a mut self,
         entry: &'a str,
     ) -> impl Iterator<Item = (usize, &'a mut SourcesFile)> {
-        self.iter_mut().enumerate().filter(move |(_, list)| {
-            list.lines.iter().any(|line| {
-                if let SourceLine::Entry(e) = line {
-                    entry == e.url
-                } else {
-                    false
-                }
-            })
-        })
+        self.iter_mut().filter_map(move |list| list.contains_entry(entry).map(|p| (p, list)))
     }
 
     /// Insert new source entries to the list.
     pub fn insert_entry<P: AsRef<Path>>(
         &mut self,
         path: P,
-        entry: &SourceEntry,
+        entry: SourceEntry,
     ) -> SourceResult<()> {
         let path = path.as_ref();
 
         for list in self.iter_mut() {
             if list.path == path {
-                list.lines.push(SourceLine::Entry(entry.clone()));
+                match list.contains_entry(&entry.url) {
+                    Some(pos) => list.lines[pos] = SourceLine::Entry(entry),
+                    None => list.lines.push(SourceLine::Entry(entry))
+                }
+
                 return list
                     .write_sync()
                     .map_err(|why| SourceError::EntryWrite { path: list.path.clone(), why });
