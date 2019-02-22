@@ -5,8 +5,9 @@ fn binary() {
     assert_eq!(
         SourceLine::parse_line(
             "deb http://us.archive.ubuntu.com/ubuntu/ cosmic main \
-            restricted universe multiverse"
-        ).unwrap(),
+             restricted universe multiverse"
+        )
+        .unwrap(),
         SourceLine::Entry(SourceEntry {
             source: false,
             url: "http://us.archive.ubuntu.com/ubuntu/".into(),
@@ -27,8 +28,9 @@ fn source() {
     assert_eq!(
         SourceLine::parse_line(
             "deb-src http://us.archive.ubuntu.com/ubuntu/ cosmic main \
-            restricted universe multiverse"
-        ).unwrap(),
+             restricted universe multiverse"
+        )
+        .unwrap(),
         SourceLine::Entry(SourceEntry {
             source: true,
             url: "http://us.archive.ubuntu.com/ubuntu/".into(),
@@ -44,20 +46,13 @@ fn source() {
     );
 }
 
-
 #[test]
 fn fluff() {
     let comment = "# deb-src http://us.archive.ubuntu.com/ubuntu/ cosmic main \
-        restricted universe multiverse";
-    assert_eq!(
-        SourceLine::parse_line(comment).unwrap(),
-        SourceLine::Comment(comment.into())
-    );
+                   restricted universe multiverse";
+    assert_eq!(SourceLine::parse_line(comment).unwrap(), SourceLine::Comment(comment.into()));
 
-    assert_eq!(
-        SourceLine::parse_line("").unwrap(),
-        SourceLine::Empty
-    );
+    assert_eq!(SourceLine::parse_line("").unwrap(), SourceLine::Empty);
 }
 
 #[test]
@@ -67,7 +62,7 @@ fn options() {
         "deb [arch=amd64 ] http://apt.pop-os.org/proprietary cosmic main",
         "deb [ arch=amd64] http://apt.pop-os.org/proprietary cosmic main",
         "deb [arch=amd64]http://apt.pop-os.org/proprietary cosmic main",
-        "deb [ arch=amd64 ]http://apt.pop-os.org/proprietary cosmic main"
+        "deb [ arch=amd64 ]http://apt.pop-os.org/proprietary cosmic main",
     ];
 
     for source in &options {

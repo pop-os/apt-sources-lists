@@ -9,5 +9,4 @@ keywords = ["apt", "source", "list"]
 categories = ["os::unix-apis"]
 
 [dependencies]
-failure = "0.1.3"
-failure_derive = "0.1.3"
+err-derive = "0.1.5"

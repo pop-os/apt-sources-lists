@@ -1,19 +1,26 @@
 use std::io;
+use std::path::PathBuf;
 
 /// An error that may occur when parsing apt sources.
-#[derive(Debug, Fail)]
+#[derive(Debug, Error)]
 pub enum SourceError {
-    #[fail(display = "I/O error occurred: {}", why)]
-    IO { why: io::Error },
-    #[fail(display = "missing field in apt source list: '{}'", field)]
+    #[error(display = "I/O error occurred: {}", _0)]
+    Io(io::Error),
+    #[error(display = "missing field in apt source list: '{}'", field)]
     MissingField { field: &'static str },
-    #[fail(display = "invalid field in aopt source list: '{}' is invalid for '{}'", value, field)]
+    #[error(display = "invalid field in apt source list: '{}' is invalid for '{}'", value, field)]
     InvalidValue { field: &'static str, value: String },
+    #[error(display = "entry did not exist in sources")]
+    EntryNotFound,
+    #[error(display = "failed to write changes to {:?}: {}", path, why)]
+    EntryWrite { path: PathBuf, why: io::Error },
+    #[error(display = "source file was not found")]
+    FileNotFound,
 }
 
 impl From<io::Error> for SourceError {
     fn from(why: io::Error) -> Self {
-        SourceError::IO { why }
+        SourceError::Io(why)
     }
 }
 

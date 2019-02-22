@@ -2,7 +2,7 @@ use super::*;
 use std::fmt;
 
 /// An apt source entry that is active on the system.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SourceEntry {
     /// Whether this is a binary or source repo.
     pub source: bool,
@@ -28,7 +28,9 @@ impl SourceEntry {
         let source = match fields.next().ok_or(SourceError::MissingField { field: "source" })? {
             "deb" => false,
             "deb-src" => true,
-            other => return Err(SourceError::InvalidValue { field: "source", value: other.to_owned() })
+            other => {
+                return Err(SourceError::InvalidValue { field: "source", value: other.to_owned() })
+            }
         };
 
         let field = fields.next().ok_or(SourceError::MissingField { field: "url" })?;
@@ -41,17 +43,18 @@ impl SourceEntry {
                     options = Some(field[..pos].into());
                 } else {
                     options = Some(field[..pos].into());
-                    leftover = Some(field[pos+1..].into());
+                    leftover = Some(field[pos + 1..].into());
                 }
             } else {
                 loop {
-                    let next = fields.next().ok_or(SourceError::MissingField { field: "option" })?;
+                    let next =
+                        fields.next().ok_or(SourceError::MissingField { field: "option" })?;
                     if let Some(pos) = next.find(']') {
                         field.push_str(&next[..pos]);
                         if pos != next.len() - 1 {
-                            leftover = Some(next[pos+1..].into());
+                            leftover = Some(next[pos + 1..].into());
                         }
-                        break
+                        break;
                     } else {
                         field.push_str(next);
                     }
@@ -62,7 +65,7 @@ impl SourceEntry {
 
             url = match leftover {
                 Some(field) => field,
-                None => fields.next().ok_or(SourceError::MissingField { field: "url" })?.into()
+                None => fields.next().ok_or(SourceError::MissingField { field: "url" })?.into(),
             };
         } else {
             url = field.into();
@@ -73,18 +76,12 @@ impl SourceEntry {
         }
 
         let suite = fields.next().ok_or(SourceError::MissingField { field: "suite" })?.into();
-        components.push(fields.next().ok_or(SourceError::MissingField { field: "component" })?.into());
+
         for field in fields {
             components.push(field.into());
         }
 
-        Ok(SourceEntry {
-            source,
-            url,
-            suite,
-            components,
-            options
-        })
+        Ok(SourceEntry { source, url, suite, components, options })
     }
 
     pub fn url(&self) -> &str {
@@ -126,7 +123,9 @@ impl SourceEntry {
     /// Iterator that returns each of the dist components that are to be fetched.
     pub fn dist_components<'a>(&'a self) -> Box<Iterator<Item = String> + 'a> {
         let url = self.url();
-        let iterator = self.components.iter()
+        let iterator = self
+            .components
+            .iter()
             .map(move |component| [url, "/dists/", &self.suite, "/", &component].concat());
         Box::new(iterator)
     }

@@ -6,9 +6,8 @@
 //! Active source entries will be parsed into `SourceEntry`'s, which can be handled or serialized
 //! back into text. Formatting of these lines are not preserved.
 
-extern crate failure;
 #[macro_use]
-extern crate failure_derive;
+extern crate err_derive;
 
 mod errors;
 mod source_entry;
