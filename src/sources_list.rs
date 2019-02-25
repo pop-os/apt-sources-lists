@@ -41,7 +41,10 @@ impl SourcesFile {
                 )
             })?;
 
-            source_list.lines.push(entry);
+            // Prevent duplicate entries.
+            if !source_list.lines.contains(&entry) {
+                source_list.lines.push(entry);
+            }
         }
 
         source_list.path = path.to_path_buf();
