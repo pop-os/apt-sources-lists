@@ -63,7 +63,8 @@ impl SourcesFile {
     }
 
     pub fn write_sync(&mut self) -> io::Result<()> {
-        fs::write(&self.path, format!("{}", self))
+        File::create(&self.path)
+            .and_then(|mut file| writeln!(&mut file, "{}", self))
     }
 
     pub fn reload(&mut self) -> io::Result<()> {
