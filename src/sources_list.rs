@@ -1,10 +1,11 @@
 use super::*;
 use std::fmt::{self, Display, Formatter};
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, Write};
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 #[derive(Clone, Debug, Default)]
 pub struct SourcesFile {
@@ -12,34 +13,14 @@ pub struct SourcesFile {
     pub lines: Vec<SourceLine>,
 }
 
-impl SourcesFile {
-    pub fn new<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        let path = path.as_ref();
+impl FromStr for SourcesFile {
+    type Err = SourcesFileError;
+    fn from_str(input: &str) -> Result<Self, Self::Err> {
         let mut source_list = Self::default();
+        for (no, line) in input.lines().enumerate() {
 
-        let file = File::open(path).map_err(|why| {
-            io::Error::new(why.kind(), format!("failed to open {}: {}", path.display(), why))
-        })?;
-
-        for (no, line) in BufReader::new(file).lines().enumerate() {
-            let line = line.map_err(|why| {
-                io::Error::new(
-                    why.kind(),
-                    format!("error reading line {} in {}: {}", no, path.display(), why),
-                )
-            })?;
-
-            let entry = SourceLine::parse_line(line.as_str()).map_err(|why| {
-                io::Error::new(
-                    io::ErrorKind::Other,
-                    format!(
-                        "error parsing line {} ({}) in {}: {}",
-                        line.as_str(),
-                        no,
-                        path.display(),
-                        why
-                    ),
-                )
+            let entry = line.parse::<SourceLine>().map_err(|why| {
+                SourcesFileError::BadLine { line: no, why }
             })?;
 
             // Prevent duplicate entries.
@@ -48,8 +29,22 @@ impl SourcesFile {
             }
         }
 
-        source_list.path = path.to_path_buf();
         Ok(source_list)
+    }
+}
+
+impl SourcesFile {
+    pub fn new<P: AsRef<Path>>(path: P) -> SourceResult<Self> {
+        let path = path.as_ref();
+        let data = fs::read_to_string(path).map_err(|why| {
+            SourceError::SourcesFileOpen { path: path.to_path_buf(), why }
+        })?;
+        let mut sources_file = data.parse::<SourcesFile>().map_err(|why| {
+            SourceError::SourcesFile { path: path.to_path_buf(), why: Box::new(why) }
+        })?;
+
+        sources_file.path = path.to_path_buf();
+        Ok(sources_file)
     }
 
     pub fn contains_entry(&self, entry: &str) -> Option<usize> {
@@ -74,7 +69,7 @@ impl SourcesFile {
             .and_then(|mut file| writeln!(&mut file, "{}", self))
     }
 
-    pub fn reload(&mut self) -> io::Result<()> {
+    pub fn reload(&mut self) -> SourceResult<()> {
         *self = Self::new(&self.path)?;
         Ok(())
     }
@@ -126,11 +121,14 @@ impl SourcesList {
             }
         }
 
+        Self::new_from_paths(paths.iter())
+    }
+
+    /// When given a list of paths to source lists, this will attempt to parse them.
+    pub fn new_from_paths<P: AsRef<Path>, I: Iterator<Item = P>>(paths: I) -> SourceResult<Self> {
         let files = paths
-            .iter()
             .map(SourcesFile::new)
-            .collect::<io::Result<Vec<SourcesFile>>>()
-            .map_err(SourceError::Io)?;
+            .collect::<SourceResult<Vec<SourcesFile>>>()?;
 
         Ok(SourcesList { modified: Vec::with_capacity(files.len()), files })
     }
@@ -146,7 +144,11 @@ impl SourcesList {
         })
     }
 
-    /// Insert new source entries to the list.
+    /// Insert a source entry to the lists.
+    ///
+    /// If the entry already exists, it will be modified.
+    /// Otherwise, the entry will be added to the preferred list.
+    /// If the preferred list does not exist, it will be created.
     pub fn insert_entry<P: AsRef<Path>>(
         &mut self,
         path: P,
@@ -167,7 +169,12 @@ impl SourcesList {
             }
         }
 
-        Err(SourceError::FileNotFound)
+        files.push(SourcesFile {
+            path: path.to_path_buf(),
+            lines: vec![SourceLine::Entry(entry)]
+        });
+
+        Ok(())
     }
 
     /// Remove the source entry from each file in the sources lists.

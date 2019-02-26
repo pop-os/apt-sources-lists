@@ -1,5 +1,6 @@
 use super::*;
 use std::fmt;
+use std::str::FromStr;
 
 /// A line from an apt source list.
 #[derive(Clone, Debug, PartialEq)]
@@ -19,16 +20,16 @@ impl fmt::Display for SourceLine {
     }
 }
 
-impl SourceLine {
-    /// Parses a single line within an apt source list file.
-    pub fn parse_line(line: &str) -> SourceResult<Self> {
+impl FromStr for SourceLine {
+    type Err = SourceError;
+    fn from_str(line: &str) -> Result<Self, Self::Err> {
         let line = line.trim();
         if line.starts_with('#') {
             Ok(SourceLine::Comment(line.into()))
         } else if line.is_empty() {
             Ok(SourceLine::Empty)
         } else {
-            Ok(SourceLine::Entry(SourceEntry::parse_line(line)?))
+            Ok(SourceLine::Entry(line.parse::<SourceEntry>()?))
         }
     }
 }

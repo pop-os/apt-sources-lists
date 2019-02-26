@@ -16,6 +16,16 @@ pub enum SourceError {
     EntryWrite { path: PathBuf, why: io::Error },
     #[error(display = "source file was not found")]
     FileNotFound,
+    #[error(display = "failed to parse source list at {:?}: {}", path, why)]
+    SourcesFile { path: PathBuf, why: Box<SourcesFileError> },
+    #[error(display = "failed to open / read source list at {:?}: {}", path, why)]
+    SourcesFileOpen { path: PathBuf, why: io::Error },
+}
+
+#[derive(Debug, Error)]
+pub enum SourcesFileError {
+    #[error(display = "parsing error on line {}: {}", line, why)]
+    BadLine { line: usize, why: SourceError }
 }
 
 impl From<io::Error> for SourceError {

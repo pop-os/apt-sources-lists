@@ -1,5 +1,6 @@
 use super::*;
 use std::fmt;
+use std::str::FromStr;
 
 /// An apt source entry that is active on the system.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -16,9 +17,20 @@ pub struct SourceEntry {
     pub components: Vec<String>,
 }
 
-impl SourceEntry {
-    /// Parses a single apt entry line within an apt source list file.
-    pub fn parse_line(line: &str) -> SourceResult<Self> {
+impl fmt::Display for SourceEntry {
+    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        fmt.write_str(if self.source { "deb-src " } else { "deb " })?;
+        if let Some(ref options) = self.options.as_ref() {
+            write!(fmt, "[{}] ", options)?;
+        }
+
+        write!(fmt, "{} {} {}", self.url, self.suite, self.components.join(" "))
+    }
+}
+
+impl FromStr for SourceEntry {
+    type Err = SourceError;
+    fn from_str(line: &str) -> Result<Self, Self::Err> {
         let mut components = Vec::new();
         let mut options = None;
         let url;
@@ -83,7 +95,9 @@ impl SourceEntry {
 
         Ok(SourceEntry { source, url, suite, components, options })
     }
+}
 
+impl SourceEntry {
     pub fn url(&self) -> &str {
         let mut url: &str = &self.url;
         while url.ends_with('/') {
@@ -107,13 +121,13 @@ impl SourceEntry {
     ///
     /// For an entry such as:
     ///
-    /// ```
+    /// ```toml
     /// deb http://us.archive.ubuntu.com/ubuntu/ cosmic main
     /// ```
     ///
     /// The path that will be returned will be:
     ///
-    /// ```
+    /// ```toml
     /// http://us.archive.ubuntu.com/ubuntu/dists/cosmic
     /// ```
     pub fn dist_path(&self) -> String {
@@ -134,27 +148,16 @@ impl SourceEntry {
     ///
     /// For an entry such as:
     ///
-    /// ```
+    /// ```toml
     /// deb http://us.archive.ubuntu.com/ubuntu/ cosmic main
     /// ```
     ///
     /// The path that will be returned will be:
     ///
-    /// ```
+    /// ```toml
     /// http://us.archive.ubuntu.com/ubuntu/pool/cosmic
     /// ```
     pub fn pool_path(&self) -> String {
         [self.url(), "/pool/"].concat()
-    }
-}
-
-impl fmt::Display for SourceEntry {
-    fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
-        fmt.write_str(if self.source { "deb-src " } else { "deb " })?;
-        if let Some(ref options) = self.options.as_ref() {
-            write!(fmt, "[{}] ", options)?;
-        }
-
-        write!(fmt, "{} {} {}", self.url, self.suite, self.components.join(" "))
     }
 }

@@ -1,9 +1,10 @@
 pub use super::*;
+use std::str::FromStr;
 
 #[test]
 fn binary() {
     assert_eq!(
-        SourceLine::parse_line(
+        SourceLine::from_str(
             "deb http://us.archive.ubuntu.com/ubuntu/ cosmic main \
              restricted universe multiverse"
         )
@@ -26,7 +27,7 @@ fn binary() {
 #[test]
 fn source() {
     assert_eq!(
-        SourceLine::parse_line(
+        SourceLine::from_str(
             "deb-src http://us.archive.ubuntu.com/ubuntu/ cosmic main \
              restricted universe multiverse"
         )
@@ -50,9 +51,9 @@ fn source() {
 fn fluff() {
     let comment = "# deb-src http://us.archive.ubuntu.com/ubuntu/ cosmic main \
                    restricted universe multiverse";
-    assert_eq!(SourceLine::parse_line(comment).unwrap(), SourceLine::Comment(comment.into()));
+    assert_eq!(SourceLine::from_str(comment).unwrap(), SourceLine::Comment(comment.into()));
 
-    assert_eq!(SourceLine::parse_line("").unwrap(), SourceLine::Empty);
+    assert_eq!(SourceLine::from_str("").unwrap(), SourceLine::Empty);
 }
 
 #[test]
@@ -66,9 +67,8 @@ fn options() {
     ];
 
     for source in &options {
-        eprintln!("testing {}", source);
         assert_eq!(
-            SourceLine::parse_line(source).unwrap(),
+            SourceLine::from_str(source).unwrap(),
             SourceLine::Entry(SourceEntry {
                 source: false,
                 url: "http://apt.pop-os.org/proprietary".into(),
