@@ -3,6 +3,7 @@ use std::fmt::{self, Display, Formatter};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, Write};
 use std::mem;
+use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug, Default)]
@@ -66,7 +67,10 @@ impl SourcesFile {
     }
 
     pub fn write_sync(&mut self) -> io::Result<()> {
-        File::create(&self.path)
+        fs::OpenOptions::new()
+            .truncate(true)
+            .write(true)
+            .open(&self.path)
             .and_then(|mut file| writeln!(&mut file, "{}", self))
     }
 
@@ -88,7 +92,24 @@ impl Display for SourcesFile {
 
 #[derive(Clone, Debug)]
 /// Stores all apt source information fetched from the system.
-pub struct SourcesList(Vec<SourcesFile>);
+pub struct SourcesList {
+    files: Vec<SourcesFile>,
+    modified: Vec<u16>,
+}
+
+impl Deref for SourcesList {
+    type Target = Vec<SourcesFile>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.files
+    }
+}
+
+impl DerefMut for SourcesList {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.files
+    }
+}
 
 impl SourcesList {
     /// Scans every file in **/etc/apt/sources.list.d**, including **/etc/apt/sources.list**.
@@ -105,13 +126,13 @@ impl SourcesList {
             }
         }
 
-        let lists = paths
+        let files = paths
             .iter()
             .map(SourcesFile::new)
             .collect::<io::Result<Vec<SourcesFile>>>()
             .map_err(SourceError::Io)?;
 
-        Ok(SourcesList(lists))
+        Ok(SourcesList { modified: Vec::with_capacity(files.len()), files })
     }
 
     /// Constructs an iterator of source entries from a sources list.
@@ -148,30 +169,31 @@ impl SourcesList {
         entry: SourceEntry,
     ) -> SourceResult<()> {
         let path = path.as_ref();
+        let &mut Self { ref mut modified, ref mut files } = self;
 
-        for list in self.iter_mut() {
+        for (id, list) in files.iter_mut().enumerate() {
             if list.path == path {
                 match list.contains_entry(&entry.url) {
                     Some(pos) => list.lines[pos] = SourceLine::Entry(entry),
-                    None => list.lines.push(SourceLine::Entry(entry))
+                    None => list.lines.push(SourceLine::Entry(entry)),
                 }
 
-                return list
-                    .write_sync()
-                    .map_err(|why| SourceError::EntryWrite { path: list.path.clone(), why });
+                add_modified(modified, id as u16);
+                return Ok(());
             }
         }
 
         Err(SourceError::FileNotFound)
     }
 
-    /// Remove source entry from the lists
+    /// Remove the source entry from each file in the sources lists.
     pub fn remove_entry(&mut self, repo: &str) -> SourceResult<()> {
-        for (line, entry) in self.lists_which_contain_mut(repo) {
-            entry.lines.remove(line);
-            entry
-                .write_sync()
-                .map_err(|why| SourceError::EntryWrite { path: entry.path.clone(), why })?;
+        let &mut Self { ref mut modified, ref mut files } = self;
+        for (id, list) in files.iter_mut().enumerate() {
+            if let Some(line) = list.contains_entry(repo) {
+                list.lines.remove(line);
+                add_modified(modified, id as u16);
+            }
         }
 
         Ok(())
@@ -179,17 +201,17 @@ impl SourcesList {
 
     /// Instead of removing it, comment it.
     pub fn comment_entry(&mut self, repo: &str) -> SourceResult<()> {
-        for (line, entry) in self.lists_which_contain_mut(repo) {
-            let mut v = SourceLine::Empty;
-            mem::swap(&mut v, &mut entry.lines[line]);
+        let &mut Self { ref mut modified, ref mut files } = self;
+        for (id, list) in files.iter_mut().enumerate() {
+            if let Some(line) = list.contains_entry(repo) {
+                let mut v = SourceLine::Empty;
+                add_modified(modified, id as u16);
+                mem::swap(&mut v, &mut list.lines[line]);
 
-            if let SourceLine::Entry(e) = v {
-                entry.lines[line] = SourceLine::Comment(format!("# {}", e));
+                if let SourceLine::Entry(e) = v {
+                    list.lines[line] = SourceLine::Comment(format!("# {}", e));
+                }
             }
-
-            entry
-                .write_sync()
-                .map_err(|why| SourceError::EntryWrite { path: entry.path.clone(), why })?;
         }
 
         Ok(())
@@ -288,15 +310,15 @@ impl SourcesList {
         })
     }
 
-    pub fn into_iter(self) -> impl Iterator<Item = SourcesFile> {
-        self.0.into_iter()
+    /// Overwrite all files which were modified.
+    pub fn write_sync(&mut self) -> io::Result<()> {
+        let &mut Self { ref mut modified, ref mut files } = self;
+        modified.drain(..).map(|id| files[id as usize].write_sync()).collect()
     }
+}
 
-    pub fn iter(&self) -> impl Iterator<Item = &SourcesFile> {
-        self.0.iter()
-    }
-
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut SourcesFile> {
-        self.0.iter_mut()
+fn add_modified(modified: &mut Vec<u16>, list: u16) {
+    if !modified.iter().any(|&v| v == list) {
+        modified.push(list);
     }
 }
