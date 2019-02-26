@@ -146,22 +146,6 @@ impl SourcesList {
         })
     }
 
-    /// Determine if the given entry repo is in a sources list, then return each repo where it was found.
-    pub fn lists_which_contain<'a>(
-        &'a self,
-        entry: &'a str,
-    ) -> impl Iterator<Item = (usize, &'a SourcesFile)> {
-        self.iter().filter_map(move |list| list.contains_entry(entry).map(|p| (p, list)))
-    }
-
-    /// Determine if the given entry repo is in a sources list, then return each repo where it was found.
-    pub fn lists_which_contain_mut<'a>(
-        &'a mut self,
-        entry: &'a str,
-    ) -> impl Iterator<Item = (usize, &'a mut SourcesFile)> {
-        self.iter_mut().filter_map(move |list| list.contains_entry(entry).map(|p| (p, list)))
-    }
-
     /// Insert new source entries to the list.
     pub fn insert_entry<P: AsRef<Path>>(
         &mut self,
@@ -215,6 +199,29 @@ impl SourcesList {
         }
 
         Ok(())
+    }
+
+    /// Modify all sources with the `from_suite` to point to the `to_suite`.
+    ///
+    /// Changes are only applied in-memory. Use `SourcesList::wirte_sync` to write
+    /// all changes to the disk.
+    pub fn dist_replace(&mut self, from_suite: &str, to_suite: &str) {
+        let &mut Self { ref mut modified, ref mut files } = self;
+        for (id, file) in files.iter_mut().enumerate() {
+            let mut changed = false;
+            for line in &mut file.lines {
+                if let SourceLine::Entry(ref mut entry) = line {
+                    if entry.suite == from_suite {
+                        entry.suite = to_suite.to_owned();
+                        changed = true;
+                    }
+                }
+            }
+
+            if changed {
+                add_modified(modified, id as u16);
+            }
+        }
     }
 
     /// Upgrade entries so that they point to a new release.
