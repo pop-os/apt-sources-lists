@@ -3,7 +3,7 @@ extern crate apt_sources_lists;
 use apt_sources_lists::*;
 
 pub fn main() {
-    let list = SourcesList::scan().unwrap();
+    let list = SourcesLists::scan().unwrap();
     for file in list.iter() {
         println!("{}:", file.path.display());
         for entry in &file.lines {

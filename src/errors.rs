@@ -17,15 +17,15 @@ pub enum SourceError {
     #[error(display = "source file was not found")]
     FileNotFound,
     #[error(display = "failed to parse source list at {:?}: {}", path, why)]
-    SourcesFile { path: PathBuf, why: Box<SourcesFileError> },
+    SourcesList { path: PathBuf, why: Box<SourcesListError> },
     #[error(display = "failed to open / read source list at {:?}: {}", path, why)]
-    SourcesFileOpen { path: PathBuf, why: io::Error },
+    SourcesListOpen { path: PathBuf, why: io::Error },
 }
 
 #[derive(Debug, Error)]
-pub enum SourcesFileError {
+pub enum SourcesListError {
     #[error(display = "parsing error on line {}: {}", line, why)]
-    BadLine { line: usize, why: SourceError }
+    BadLine { line: usize, why: SourceError },
 }
 
 impl From<io::Error> for SourceError {

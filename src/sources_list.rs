@@ -2,26 +2,24 @@ use super::*;
 use std::fmt::{self, Display, Formatter};
 use std::fs::{self, File};
 use std::io::{self, Write};
-use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 #[derive(Clone, Debug, Default)]
-pub struct SourcesFile {
+pub struct SourcesList {
     pub path: PathBuf,
     pub lines: Vec<SourceLine>,
 }
 
-impl FromStr for SourcesFile {
-    type Err = SourcesFileError;
+impl FromStr for SourcesList {
+    type Err = SourcesListError;
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         let mut source_list = Self::default();
         for (no, line) in input.lines().enumerate() {
-
-            let entry = line.parse::<SourceLine>().map_err(|why| {
-                SourcesFileError::BadLine { line: no, why }
-            })?;
+            let entry = line
+                .parse::<SourceLine>()
+                .map_err(|why| SourcesListError::BadLine { line: no, why })?;
 
             // Prevent duplicate entries.
             if !source_list.lines.contains(&entry) {
@@ -33,14 +31,13 @@ impl FromStr for SourcesFile {
     }
 }
 
-impl SourcesFile {
+impl SourcesList {
     pub fn new<P: AsRef<Path>>(path: P) -> SourceResult<Self> {
         let path = path.as_ref();
-        let data = fs::read_to_string(path).map_err(|why| {
-            SourceError::SourcesFileOpen { path: path.to_path_buf(), why }
-        })?;
-        let mut sources_file = data.parse::<SourcesFile>().map_err(|why| {
-            SourceError::SourcesFile { path: path.to_path_buf(), why: Box::new(why) }
+        let data = fs::read_to_string(path)
+            .map_err(|why| SourceError::SourcesListOpen { path: path.to_path_buf(), why })?;
+        let mut sources_file = data.parse::<SourcesList>().map_err(|why| {
+            SourceError::SourcesList { path: path.to_path_buf(), why: Box::new(why) }
         })?;
 
         sources_file.path = path.to_path_buf();
@@ -55,6 +52,21 @@ impl SourcesFile {
                 false
             }
         })
+    }
+
+    pub fn get_entry_mut(&mut self, entry: &str) -> Option<&mut SourceEntry> {
+        self.lines
+            .iter_mut()
+            .filter_map(|line| {
+                if let SourceLine::Entry(ref mut e) = line {
+                    if entry == e.url {
+                        return Some(e);
+                    }
+                }
+
+                None
+            })
+            .next()
     }
 
     pub fn is_active(&self) -> bool {
@@ -75,7 +87,7 @@ impl SourcesFile {
     }
 }
 
-impl Display for SourcesFile {
+impl Display for SourcesList {
     fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
         for line in &self.lines {
             writeln!(fmt, "{}", line)?;
@@ -87,26 +99,26 @@ impl Display for SourcesFile {
 
 #[derive(Clone, Debug)]
 /// Stores all apt source information fetched from the system.
-pub struct SourcesList {
-    files: Vec<SourcesFile>,
-    modified: Vec<u16>,
+pub struct SourcesLists {
+    pub(crate) files: Vec<SourcesList>,
+    pub(crate) modified: Vec<u16>,
 }
 
-impl Deref for SourcesList {
-    type Target = Vec<SourcesFile>;
+impl Deref for SourcesLists {
+    type Target = Vec<SourcesList>;
 
     fn deref(&self) -> &Self::Target {
         &self.files
     }
 }
 
-impl DerefMut for SourcesList {
+impl DerefMut for SourcesLists {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.files
     }
 }
 
-impl SourcesList {
+impl SourcesLists {
     /// Scans every file in **/etc/apt/sources.list.d**, including **/etc/apt/sources.list**.
     ///
     /// Note that this will parse every source list into memory before returning.
@@ -126,15 +138,29 @@ impl SourcesList {
 
     /// When given a list of paths to source lists, this will attempt to parse them.
     pub fn new_from_paths<P: AsRef<Path>, I: Iterator<Item = P>>(paths: I) -> SourceResult<Self> {
-        let files = paths
-            .map(SourcesFile::new)
-            .collect::<SourceResult<Vec<SourcesFile>>>()?;
+        let files = paths.map(SourcesList::new).collect::<SourceResult<Vec<SourcesList>>>()?;
 
-        Ok(SourcesList { modified: Vec::with_capacity(files.len()), files })
+        Ok(SourcesLists { modified: Vec::with_capacity(files.len()), files })
     }
 
-    /// Constructs an iterator of source entries from a sources list.
-    pub fn dist_paths(&self) -> impl Iterator<Item = &SourceEntry> {
+    /// Specify to enable or disable a repo. `true` is returned if the repo was found.
+    pub fn repo_modify(&mut self, repo: &str, enabled: bool) -> bool {
+        let &mut Self { ref mut modified, ref mut files } = self;
+
+        files
+            .iter_mut()
+            .enumerate()
+            .filter_map(|(pos, list)| list.get_entry_mut(repo).map(|e| (pos, e)))
+            .next()
+            .map_or(false, |(pos, entry)| {
+                add_modified(modified, pos as u16);
+                entry.enabled = enabled;
+                true
+            })
+    }
+
+    /// Constructs an iterator of enabled source entries from a sources list.
+    pub fn entries(&self) -> impl Iterator<Item = &SourceEntry> {
         self.iter().flat_map(|list| list.lines.iter()).filter_map(move |entry| {
             if let SourceLine::Entry(entry) = entry {
                 return Some(entry);
@@ -169,16 +195,13 @@ impl SourcesList {
             }
         }
 
-        files.push(SourcesFile {
-            path: path.to_path_buf(),
-            lines: vec![SourceLine::Entry(entry)]
-        });
+        files.push(SourcesList { path: path.to_path_buf(), lines: vec![SourceLine::Entry(entry)] });
 
         Ok(())
     }
 
     /// Remove the source entry from each file in the sources lists.
-    pub fn remove_entry(&mut self, repo: &str) -> SourceResult<()> {
+    pub fn remove_entry(&mut self, repo: &str) {
         let &mut Self { ref mut modified, ref mut files } = self;
         for (id, list) in files.iter_mut().enumerate() {
             if let Some(line) = list.contains_entry(repo) {
@@ -186,31 +209,11 @@ impl SourcesList {
                 add_modified(modified, id as u16);
             }
         }
-
-        Ok(())
-    }
-
-    /// Instead of removing it, comment it.
-    pub fn comment_entry(&mut self, repo: &str) -> SourceResult<()> {
-        let &mut Self { ref mut modified, ref mut files } = self;
-        for (id, list) in files.iter_mut().enumerate() {
-            if let Some(line) = list.contains_entry(repo) {
-                let mut v = SourceLine::Empty;
-                add_modified(modified, id as u16);
-                mem::swap(&mut v, &mut list.lines[line]);
-
-                if let SourceLine::Entry(e) = v {
-                    list.lines[line] = SourceLine::Comment(format!("# {}", e));
-                }
-            }
-        }
-
-        Ok(())
     }
 
     /// Modify all sources with the `from_suite` to point to the `to_suite`.
     ///
-    /// Changes are only applied in-memory. Use `SourcesList::wirte_sync` to write
+    /// Changes are only applied in-memory. Use `SourcesLists::wirte_sync` to write
     /// all changes to the disk.
     pub fn dist_replace(&mut self, from_suite: &str, to_suite: &str) {
         let &mut Self { ref mut modified, ref mut files } = self;
@@ -260,7 +263,7 @@ impl SourcesList {
         }
 
         fn apply(
-            sources: &mut SourcesList,
+            sources: &mut SourcesLists,
             modified: &mut Vec<PathBuf>,
             from_suite: &str,
             to_suite: &str,
@@ -308,7 +311,7 @@ impl SourcesList {
         from_suite: &'a str,
         to_suite: &'a str,
     ) -> impl Iterator<Item = String> + 'a {
-        self.dist_paths().filter_map(move |entry| {
+        self.entries().filter_map(move |entry| {
             if entry.url.starts_with("http") && entry.suite.starts_with(from_suite) {
                 let entry = {
                     let mut entry = entry.clone();

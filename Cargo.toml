@@ -5,8 +5,9 @@ authors = ["Michael Aaron Murphy <mmstickman@gmail.com>"]
 description = "Library for fetching information from apt sources lists on the system"
 license = "MIT"
 readme = "README.md"
-keywords = ["apt", "source", "list"]
+keywords = ["apt", "source", "list", "linux"]
 categories = ["os::unix-apis"]
 
 [dependencies]
 err-derive = "0.1.5"
+reqwest = "0.9.15"

@@ -5,6 +5,8 @@ use std::str::FromStr;
 /// An apt source entry that is active on the system.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SourceEntry {
+    /// Whether the entry is enabled or not.
+    pub enabled: bool,
     /// Whether this is a binary or source repo.
     pub source: bool,
     /// Some repos may have special options defined.
@@ -19,6 +21,10 @@ pub struct SourceEntry {
 
 impl fmt::Display for SourceEntry {
     fn fmt(&self, fmt: &mut fmt::Formatter) -> fmt::Result {
+        if !self.enabled {
+            fmt.write_str("# ")?;
+        }
+
         fmt.write_str(if self.source { "deb-src " } else { "deb " })?;
         if let Some(ref options) = self.options.as_ref() {
             write!(fmt, "[{}] ", options)?;
@@ -93,7 +99,7 @@ impl FromStr for SourceEntry {
             components.push(field.into());
         }
 
-        Ok(SourceEntry { source, url, suite, components, options })
+        Ok(SourceEntry { enabled: true, source, url, suite, components, options })
     }
 }
 
@@ -134,14 +140,17 @@ impl SourceEntry {
         [self.url(), "/dists/", &self.suite].concat()
     }
 
-    /// Iterator that returns each of the dist components that are to be fetched.
-    pub fn dist_components<'a>(&'a self) -> Box<Iterator<Item = String> + 'a> {
+    pub fn dist_path_get(&self, path: &str) -> String {
         let url = self.url();
-        let iterator = self
-            .components
+        [url, "/dists/", &self.suite, "/", path].concat()
+    }
+
+    /// Iterator that returns each of the dist components that are to be fetched.
+    pub fn dist_components<'a>(&'a self) -> impl Iterator<Item = String> + 'a {
+        let url = self.url();
+        self.components
             .iter()
-            .map(move |component| [url, "/dists/", &self.suite, "/", &component].concat());
-        Box::new(iterator)
+            .map(move |component| [url, "/dists/", &self.suite, "/", &component].concat())
     }
 
     /// Returns the root URL for this entry's pool path.
