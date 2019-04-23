@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashSet;
 use std::fmt::{self, Display, Formatter};
 use std::fs::{self, File};
 use std::io::{self, Write};
@@ -238,7 +239,7 @@ impl SourcesLists {
     ///
     /// Files are copied to "$path.save" before being overwritten. On failure, these backup files
     /// will be used to restore the original list.
-    pub fn dist_upgrade(&mut self, from_suite: &str, to_suite: &str) -> io::Result<()> {
+    pub fn dist_upgrade(&mut self, retain: &HashSet<Box<str>>, from_suite: &str, to_suite: &str) -> io::Result<()> {
         fn newfile(modified: &mut Vec<PathBuf>, path: &Path) -> io::Result<File> {
             let backup_path = path
                 .file_name()
@@ -265,6 +266,7 @@ impl SourcesLists {
         fn apply(
             sources: &mut SourcesLists,
             modified: &mut Vec<PathBuf>,
+            retain: &HashSet<Box<str>>,
             from_suite: &str,
             to_suite: &str,
         ) -> io::Result<()> {
@@ -273,8 +275,8 @@ impl SourcesLists {
 
                 for line in list.lines.iter_mut() {
                     if let SourceLine::Entry(entry) = line {
-                        if entry.url.starts_with("http") && entry.suite.starts_with(from_suite) {
-                            entry.suite = entry.suite.replace(from_suite, to_suite);;
+                        if !retain.contains(entry.url.as_str()) && entry.url.starts_with("http") && entry.suite.starts_with(from_suite) {
+                            entry.suite = entry.suite.replace(from_suite, to_suite);
                         }
                     }
 
@@ -288,7 +290,7 @@ impl SourcesLists {
         }
 
         let mut modified = Vec::new();
-        apply(self, &mut modified, from_suite, to_suite).map_err(|why| {
+        apply(self, &mut modified, retain, from_suite, to_suite).map_err(|why| {
             // TODO: Revert the ipathsn-memory changes that were made when being applied.
             // revert(self, &modified);
 
