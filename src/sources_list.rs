@@ -222,8 +222,8 @@ impl SourcesLists {
             let mut changed = false;
             for line in &mut file.lines {
                 if let SourceLine::Entry(ref mut entry) = line {
-                    if entry.suite == from_suite {
-                        entry.suite = to_suite.to_owned();
+                    if entry.suite.starts_with(from_suite) {
+                        entry.suite = entry.suite.replace(from_suite, to_suite);
                         changed = true;
                     }
                 }
