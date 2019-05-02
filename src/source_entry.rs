@@ -89,7 +89,7 @@ impl FromStr for SourceEntry {
             url = field.into();
         }
 
-        if options.as_ref().map_or(false, |options| options.is_empty()) {
+        if options.as_ref().map_or(false, String::is_empty) {
             options = None;
         }
 

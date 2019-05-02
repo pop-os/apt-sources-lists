@@ -55,10 +55,10 @@ impl SourcesList {
         })
     }
 
-    pub fn get_entry_mut(&mut self, entry: &str) -> Option<&mut SourceEntry> {
+    pub fn get_entries_mut<'a>(&'a mut self, entry: &'a str) -> impl Iterator<Item = &mut SourceEntry> + 'a {
         self.lines
             .iter_mut()
-            .filter_map(|line| {
+            .filter_map(move |line| {
                 if let SourceLine::Entry(ref mut e) = line {
                     if entry == e.url {
                         return Some(e);
@@ -67,7 +67,6 @@ impl SourcesList {
 
                 None
             })
-            .next()
     }
 
     pub fn is_active(&self) -> bool {
@@ -148,16 +147,19 @@ impl SourcesLists {
     pub fn repo_modify(&mut self, repo: &str, enabled: bool) -> bool {
         let &mut Self { ref mut modified, ref mut files } = self;
 
-        files
+        let iterator = files
             .iter_mut()
             .enumerate()
-            .filter_map(|(pos, list)| list.get_entry_mut(repo).map(|e| (pos, e)))
-            .next()
-            .map_or(false, |(pos, entry)| {
-                add_modified(modified, pos as u16);
-                entry.enabled = enabled;
-                true
-            })
+            .flat_map(|(pos, list)| list.get_entries_mut(repo).map(move |e| (pos, e)));
+
+        let mut found = false;
+        for (pos, entry) in iterator {
+            add_modified(modified, pos as u16);
+            entry.enabled = enabled;
+            found = true;
+        }
+
+        found
     }
 
     /// Constructs an iterator of enabled source entries from a sources list.
