@@ -173,6 +173,20 @@ impl SourcesLists {
         })
     }
 
+    /// A callback-based iterator that tracks which files have been modified.
+    pub fn entries_mut<F: FnMut(&mut SourceEntry) -> bool>(&mut self, mut func: F) {
+        let &mut Self { ref mut files, ref mut modified } = self;
+        for (pos, list) in files.iter_mut().enumerate() {
+            for entry in &mut list.lines {
+                if let SourceLine::Entry(entry) = entry {
+                    if func(entry) {
+                        add_modified(modified, pos as u16)
+                    }
+                }
+            }
+        }
+    }
+
     /// Insert a source entry to the lists.
     ///
     /// If the entry already exists, it will be modified.
