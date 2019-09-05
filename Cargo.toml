@@ -10,4 +10,4 @@ categories = ["os::unix-apis"]
 
 [dependencies]
 err-derive = "0.1.5"
-reqwest = "0.9.15"
+reqwest = "0.9.20"
