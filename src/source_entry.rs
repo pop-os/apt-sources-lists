@@ -68,17 +68,20 @@ impl FromStr for SourceEntry {
                     let next =
                         fields.next().ok_or(SourceError::MissingField { field: "option" })?;
                     if let Some(pos) = next.find(']') {
+                        field.push_str(" ");
                         field.push_str(&next[..pos]);
                         if pos != next.len() - 1 {
                             leftover = Some(next[pos + 1..].into());
                         }
                         break;
                     } else {
+                        field.push_str(" ");
                         field.push_str(next);
                     }
                 }
 
                 options = Some(field);
+                options = options.map(|x| x.trim().to_string());
             }
 
             url = match leftover {
