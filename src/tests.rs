@@ -154,4 +154,25 @@ fn options() {
             })
         )
     }
+
+    let options = [
+        "deb [arch=amd64 signed-by=/usr/share/keyrings/termius-2023.gpg,/usr/share/keyrings/termius-2026.gpg a=b] https://deb.termius.com squeeze main",
+        "deb [ arch=amd64 signed-by=/usr/share/keyrings/termius-2023.gpg,/usr/share/keyrings/termius-2026.gpg a=b] https://deb.termius.com squeeze main",
+        "deb [ arch=amd64 signed-by=/usr/share/keyrings/termius-2023.gpg,/usr/share/keyrings/termius-2026.gpg a=b ] https://deb.termius.com squeeze main",
+        "deb [arch=amd64 signed-by=/usr/share/keyrings/termius-2023.gpg,/usr/share/keyrings/termius-2026.gpg a=b ] https://deb.termius.com squeeze main"
+    ];
+
+    for source in &options {
+        assert_eq!(
+            SourceLine::from_str(source).unwrap(),
+            SourceLine::Entry(SourceEntry {
+                enabled: true,
+                source: false,
+                url: "https://deb.termius.com".into(),
+                suite: "squeeze".into(),
+                options: Some("arch=amd64 signed-by=/usr/share/keyrings/termius-2023.gpg,/usr/share/keyrings/termius-2026.gpg a=b".into()),
+                components: vec!["main".into()]
+            })
+        )
+    }
 }
