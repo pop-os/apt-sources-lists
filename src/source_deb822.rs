@@ -69,8 +69,7 @@ impl FromStr for SourceListDeb822 {
                         .fields
                         .iter()
                         .find(|x| x.name == "Types")
-                        .map(|x| x.value != "deb")
-                        .unwrap_or(false),
+                        .is_some_and(|x| x.value == "deb-src"),
                     options: deb822_options(&i),
                     url: i
                         .fields
