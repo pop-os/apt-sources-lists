@@ -16,7 +16,7 @@ pub fn main() {
                 }
             }
             SourceListType::SourceLine(lines) => {
-                for entry in lines {
+                for entry in &lines.0 {
                     println!("  {}", entry);
                     if let SourceLine::Entry(ref entry) = entry {
                         println!("    Dist paths:");

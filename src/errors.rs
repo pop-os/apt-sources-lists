@@ -23,22 +23,22 @@ pub enum SourceError {
         path: PathBuf,
         why: Box<SourcesListError>,
     },
-    #[error("failed to open / read source list at {:?}: {}", path, why)]
-    SourcesListOpen { path: PathBuf, why: io::Error },
     #[error("Syntax Error: {}", why)]
     SyntaxError { why: String },
 }
 
 #[derive(Debug, Error)]
 pub enum SourcesListError {
-    #[error("parsing error on line {}: {}", line, why)]
+    #[error("Parsing error on line {}: {}", line, why)]
     BadLine { line: usize, why: SourceError },
-}
-
-impl From<io::Error> for SourceError {
-    fn from(why: io::Error) -> Self {
-        SourceError::Io(why)
-    }
+    #[error("Failed to open source list at {}: {}", path.display(), why)]
+    SourcesListOpen { path: PathBuf, why: io::Error },
+    #[error("Failed to parse deb822 source")]
+    Deb822 { path: PathBuf, why: SourceError },
+    #[error("Unknown file format for file: {}", path.display())]
+    UnknownFile { path: PathBuf },
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
 }
 
 /// Equivalent to `Result<T, SourceError>`.

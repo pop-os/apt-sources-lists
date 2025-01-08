@@ -1,7 +1,7 @@
 use deb822::signature::Signature;
 
 pub use super::*;
-use std::str::FromStr;
+use std::{path::PathBuf, str::FromStr};
 
 const SOURCE_LIST: &str = r#"
 # deb cdrom:[Pop_OS 18.04 _Bionic Beaver_ - Release amd64 (20180916)]/ bionic main restricted
@@ -34,8 +34,20 @@ fn sources_lists() -> SourcesLists {
     SourcesLists {
         modified: Vec::new(),
         files: vec![
-            SOURCE_LIST.parse::<SourcesList>().expect("source list gen"),
-            POP_PPA.parse::<SourcesList>().expect("pop ppa gen"),
+            SourcesList {
+                path: PathBuf::new(),
+                entries: sources_list::SourceListType::SourceLine(
+                    SOURCE_LIST
+                        .parse::<SourceListLineStyle>()
+                        .expect("source list gen"),
+                ),
+            },
+            SourcesList {
+                path: PathBuf::new(),
+                entries: sources_list::SourceListType::SourceLine(
+                    POP_PPA.parse::<SourceListLineStyle>().expect("pop ppa gen"),
+                ),
+            },
         ],
     }
 }
@@ -44,10 +56,20 @@ fn sources_lists_pop_disabled() -> SourcesLists {
     SourcesLists {
         modified: Vec::new(),
         files: vec![
-            SOURCE_LIST.parse::<SourcesList>().expect("source list gen"),
-            POP_PPA_DISABLED
-                .parse::<SourcesList>()
-                .expect("pop ppa gen"),
+            SourcesList {
+                path: PathBuf::new(),
+                entries: sources_list::SourceListType::SourceLine(
+                    SOURCE_LIST
+                        .parse::<SourceListLineStyle>()
+                        .expect("source list gen"),
+                ),
+            },
+            SourcesList {
+                path: PathBuf::new(),
+                entries: sources_list::SourceListType::SourceLine(
+                    POP_PPA_DISABLED.parse::<SourceListLineStyle>().expect("pop ppa gen"),
+                ),
+            },
         ],
     }
 }

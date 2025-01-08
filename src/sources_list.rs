@@ -17,59 +17,68 @@ pub struct SourcesList {
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum SourceListType {
-    SourceLine(Vec<SourceLine>),
+    SourceLine(SourceListLineStyle),
     Deb822(SourceListDeb822),
 }
 
-impl FromStr for SourcesList {
+#[derive(PartialEq, Clone, Debug)]
+pub struct SourceListLineStyle(pub Vec<SourceLine>);
+
+impl FromStr for SourceListLineStyle {
     type Err = SourcesListError;
-    fn from_str(input: &str) -> Result<Self, Self::Err> {
-        match SourceListDeb822::from_str(input) {
-            Ok(res) => Ok(SourcesList {
-                path: PathBuf::from(""),
-                entries: SourceListType::Deb822(res),
-            }),
-            Err(_) => {
-                let mut entries = vec![];
-                for (no, line) in input.lines().enumerate() {
-                    let entry = line
-                        .parse::<SourceLine>()
-                        .map_err(|why| SourcesListError::BadLine { line: no, why })?;
 
-                    entries.push(entry);
-                }
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut entries = vec![];
+        for (line_num, line) in s.lines().enumerate() {
+            let entry = line
+                .parse::<SourceLine>()
+                .map_err(|why| SourcesListError::BadLine {
+                    line: line_num,
+                    why,
+                })?;
 
-                Ok(SourcesList {
-                    path: PathBuf::from(""),
-                    entries: SourceListType::SourceLine(entries),
-                })
-            }
+            entries.push(entry);
         }
+
+        Ok(SourceListLineStyle(entries))
     }
 }
 
 impl SourcesList {
-    pub fn new<P: AsRef<Path>>(path: P) -> SourceResult<Self> {
+    pub fn new<P: AsRef<Path>>(path: P) -> Result<Self, SourcesListError> {
         let path = path.as_ref();
-        let data = fs::read_to_string(path).map_err(|why| SourceError::SourcesListOpen {
+        let data = fs::read_to_string(path).map_err(|why| SourcesListError::SourcesListOpen {
             path: path.to_path_buf(),
             why,
         })?;
-        let mut sources_file =
-            data.parse::<SourcesList>()
-                .map_err(|why| SourceError::SourcesList {
+
+        let mut sources_file = match path.extension() {
+            Some(x) if x == "sources" => SourcesList {
+                path: path.to_path_buf(),
+                entries: SourceListType::Deb822(SourceListDeb822::from_str(&data).map_err(
+                    |e| SourcesListError::Deb822 {
+                        path: path.to_path_buf(),
+                        why: e,
+                    },
+                )?),
+            },
+            Some(x) if x == "list" => get_line_style_sources_list(&data)?,
+            _ => {
+                return Err(SourcesListError::UnknownFile {
                     path: path.to_path_buf(),
-                    why: Box::new(why),
-                })?;
+                })
+            }
+        };
 
         sources_file.path = path.to_path_buf();
+
         Ok(sources_file)
     }
 
     pub fn contains_entry(&self, entry: &str) -> Option<usize> {
         let elem = &self.entries;
         match elem {
-            SourceListType::SourceLine(lines) => lines.iter().position(|e| {
+            SourceListType::SourceLine(lines) => lines.0.iter().position(|e| {
                 if let SourceLine::Entry(e) = e {
                     e.url == entry
                 } else {
@@ -86,7 +95,7 @@ impl SourcesList {
     ) -> Box<dyn Iterator<Item = &'a mut SourceEntry> + 'a> {
         match self.entries {
             SourceListType::SourceLine(ref mut line) => {
-                Box::new(line.iter_mut().filter_map(move |line| {
+                Box::new(line.0.iter_mut().filter_map(move |line| {
                     if let SourceLine::Entry(ref mut e) = line {
                         if entry == e.url {
                             return Some(e);
@@ -110,9 +119,10 @@ impl SourcesList {
 
     pub fn is_active(&self) -> bool {
         match &self.entries {
-            SourceListType::SourceLine(line) => {
-                line.iter().any(|line| matches!(line, SourceLine::Entry(_)))
-            }
+            SourceListType::SourceLine(line) => line
+                .0
+                .iter()
+                .any(|line| matches!(line, SourceLine::Entry(_))),
             SourceListType::Deb822(e) => !e.entries.is_empty(),
         }
     }
@@ -125,17 +135,36 @@ impl SourcesList {
             .and_then(|mut file| writeln!(&mut file, "{}", self))
     }
 
-    pub fn reload(&mut self) -> SourceResult<()> {
+    pub fn reload(&mut self) -> Result<(), SourcesListError> {
         *self = Self::new(&self.path)?;
         Ok(())
     }
+}
+
+fn get_line_style_sources_list(data: &str) -> Result<SourcesList, SourcesListError> {
+    let mut entries = vec![];
+    for (line_num, line) in data.lines().enumerate() {
+        let entry = line
+            .parse::<SourceLine>()
+            .map_err(|why| SourcesListError::BadLine {
+                line: line_num,
+                why,
+            })?;
+
+        entries.push(entry);
+    }
+
+    Ok(SourcesList {
+        path: PathBuf::from(""),
+        entries: SourceListType::SourceLine(SourceListLineStyle(entries)),
+    })
 }
 
 impl Display for SourcesList {
     fn fmt(&self, fmt: &mut Formatter) -> fmt::Result {
         match &self.entries {
             SourceListType::SourceLine(lines) => {
-                for line in lines {
+                for line in &lines.0 {
                     writeln!(fmt, "{}", line)?;
                 }
             }
@@ -175,22 +204,24 @@ impl SourcesLists {
     /// Scans every file in **/etc/apt/sources.list.d**, including **/etc/apt/sources.list**.
     ///
     /// Note that this will parse every source list into memory before returning.
-    pub fn scan() -> SourceResult<Self> {
+    pub fn scan() -> Result<Self, SourcesListError> {
         scan_inner("/")
     }
 
     /// Scans every file in **/etc/apt/sources.list.d**, including **/etc/apt/sources.list**. (from root argument)
     ///
     /// Note that this will parse every source list into memory before returning.
-    pub fn scan_from_root<P: AsRef<Path>>(root: P) -> SourceResult<Self> {
+    pub fn scan_from_root<P: AsRef<Path>>(root: P) -> Result<Self, SourcesListError> {
         scan_inner(root)
     }
 
     /// When given a list of paths to source lists, this will attempt to parse them.
-    pub fn new_from_paths<P: AsRef<Path>, I: Iterator<Item = P>>(paths: I) -> SourceResult<Self> {
+    pub fn new_from_paths<P: AsRef<Path>, I: Iterator<Item = P>>(
+        paths: I,
+    ) -> Result<Self, SourcesListError> {
         let files = paths
             .map(SourcesList::new)
-            .collect::<SourceResult<Vec<SourcesList>>>()?;
+            .collect::<Result<Vec<SourcesList>, SourcesListError>>()?;
 
         Ok(SourcesLists {
             modified: Vec::with_capacity(files.len()),
@@ -225,7 +256,7 @@ impl SourcesLists {
         self.iter()
             .flat_map(|list| -> Box<dyn Iterator<Item = &SourceEntry>> {
                 match &list.entries {
-                    SourceListType::SourceLine(lines) => Box::new(lines.iter().filter_map(|x| {
+                    SourceListType::SourceLine(lines) => Box::new(lines.0.iter().filter_map(|x| {
                         if let SourceLine::Entry(entry) = x {
                             Some(entry)
                         } else {
@@ -246,7 +277,7 @@ impl SourcesLists {
         for (pos, list) in files.iter_mut().enumerate() {
             match list.entries {
                 SourceListType::SourceLine(ref mut lines) => {
-                    for entry in lines {
+                    for entry in &mut lines.0 {
                         if let SourceLine::Entry(entry) = entry {
                             if func(entry) {
                                 add_modified(modified, pos as u16)
@@ -286,7 +317,7 @@ impl SourcesLists {
                 match list.contains_entry(&entry.url) {
                     Some(pos) => match list.entries {
                         SourceListType::SourceLine(ref mut lines) => {
-                            lines[pos] = SourceLine::Entry(entry)
+                            lines.0[pos] = SourceLine::Entry(entry)
                         }
                         SourceListType::Deb822(ref mut e) => {
                             e.entries[pos] = entry;
@@ -294,7 +325,7 @@ impl SourcesLists {
                     },
                     None => match list.entries {
                         SourceListType::SourceLine(ref mut lines) => {
-                            lines.push(SourceLine::Entry(entry))
+                            lines.0.push(SourceLine::Entry(entry))
                         }
                         SourceListType::Deb822(ref mut e) => {
                             e.entries.push(entry);
@@ -309,7 +340,9 @@ impl SourcesLists {
 
         files.push(SourcesList {
             path: path.to_path_buf(),
-            entries: SourceListType::SourceLine(vec![SourceLine::Entry(entry)]),
+            entries: SourceListType::SourceLine(SourceListLineStyle(vec![SourceLine::Entry(
+                entry,
+            )])),
         });
 
         Ok(())
@@ -325,7 +358,7 @@ impl SourcesLists {
             if let Some(line) = list.contains_entry(repo) {
                 match list.entries {
                     SourceListType::SourceLine(ref mut lines) => {
-                        lines.remove(line);
+                        lines.0.remove(line);
                     }
                     SourceListType::Deb822(ref mut e) => {
                         e.entries.remove(line);
@@ -349,7 +382,7 @@ impl SourcesLists {
             let mut changed = false;
             match file.entries {
                 SourceListType::SourceLine(ref mut lines) => {
-                    for line in lines {
+                    for line in &mut lines.0 {
                         if let SourceLine::Entry(ref mut entry) = line {
                             if entry.suite.starts_with(from_suite) {
                                 entry.suite = entry.suite.replace(from_suite, to_suite);
@@ -419,7 +452,7 @@ impl SourcesLists {
 
                 match list.entries {
                     SourceListType::SourceLine(ref mut lines) => {
-                        for line in lines {
+                        for line in &mut lines.0 {
                             if let SourceLine::Entry(entry) = line {
                                 if !retain.contains(entry.url.as_str())
                                     && entry.url.starts_with("http")
@@ -491,13 +524,13 @@ impl SourcesLists {
     }
 }
 
-fn scan_inner<P: AsRef<Path>>(dir: P) -> Result<SourcesLists, SourceError> {
+fn scan_inner<P: AsRef<Path>>(dir: P) -> Result<SourcesLists, SourcesListError> {
     let paths = sources_list(dir)?;
 
     SourcesLists::new_from_paths(paths.iter())
 }
 
-pub(crate) fn sources_list<P: AsRef<Path>>(dir: P) -> Result<Vec<PathBuf>, SourceError> {
+pub(crate) fn sources_list<P: AsRef<Path>>(dir: P) -> Result<Vec<PathBuf>, SourcesListError> {
     let dir = dir.as_ref();
     let mut paths = vec![];
     let default = dir.join("etc/apt/sources.list");
